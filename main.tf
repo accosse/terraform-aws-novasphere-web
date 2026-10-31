@@ -37,7 +37,7 @@ resource "aws_security_group" "this_web" {
   vpc_id      = var.vpc_id
 
   ingress {
-    description     = "HTTP depuis l'ALB uniquement"
+    description     = "HTTP depuis ALB uniquement"
     from_port       = 80
     to_port         = 80
     protocol        = "tcp"
