@@ -5,6 +5,7 @@ resource "aws_security_group" "this_alb" {
   vpc_id      = var.vpc_id
 
   ingress {
+    description = "HTTP depuis internet"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
@@ -12,6 +13,7 @@ resource "aws_security_group" "this_alb" {
   }
 
   egress {
+    description = "Sortie vers internet"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -35,6 +37,7 @@ resource "aws_security_group" "this_web" {
   vpc_id      = var.vpc_id
 
   ingress {
+    description     = "HTTP depuis l'ALB uniquement"
     from_port       = 80
     to_port         = 80
     protocol        = "tcp"
@@ -42,6 +45,7 @@ resource "aws_security_group" "this_web" {
   }
 
   egress {
+    description = "Sortie vers internet"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -63,6 +67,11 @@ resource "aws_launch_template" "this" {
   name_prefix   = "${var.app_name}-${var.environment}-"
   image_id      = var.ami_id
   instance_type = var.instance_type
+  user_data     = base64encode(var.user_data)
+
+  iam_instance_profile {
+    name = var.instance_profile_name
+  }
 
   metadata_options {
     http_endpoint               = "enabled"
@@ -91,6 +100,8 @@ resource "aws_lb" "this" {
   load_balancer_type = "application"
   security_groups    = [aws_security_group.this_alb.id]
   subnets            = var.subnet_ids
+
+  drop_invalid_header_fields = true
 
   tags = {
     Name        = "${var.app_name}-${var.environment}-alb"
@@ -133,18 +144,26 @@ resource "aws_lb_listener" "this" {
 # ASG
 resource "aws_autoscaling_group" "this" {
   name                = "${var.app_name}-${var.environment}-asg"
-  min_size            = 2
-  max_size            = 4
-  desired_capacity    = 2
+  min_size            = var.min_size
+  max_size            = var.max_size
+  desired_capacity    = coalesce(var.desired_capacity, var.min_size)
   vpc_zone_identifier = var.subnet_ids
   health_check_type   = "ELB"
 
   launch_template {
     id      = aws_launch_template.this.id
-    version = "$Latest"
+    version = aws_launch_template.this.latest_version
   }
 
   target_group_arns = [aws_lb_target_group.this.arn]
+
+  # Remplace les instances quand le Launch Template change (nouvelle version)
+  instance_refresh {
+    strategy = "Rolling"
+    preferences {
+      min_healthy_percentage = 50
+    }
+  }
 
   tag {
     key                 = "Name"
